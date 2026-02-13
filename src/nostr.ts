@@ -195,8 +195,7 @@ export async function fetchEvent(eventId: string, relays?: string[]): Promise<Ev
   const defaultRelays = [
     'wss://relay.damus.io',
     'wss://relay.snort.social',
-    'wss://nos.lol',
-    'wss://relay.nostr.band'
+    'wss://nos.lol'
   ];
   
   const pool = new SimplePool();
@@ -308,8 +307,7 @@ export async function fetchAuthorProfile(pubkey: string, relays?: string[]): Pro
   const defaultRelays = [
     'wss://relay.damus.io',
     'wss://relay.snort.social',
-    'wss://nos.lol',
-    'wss://relay.nostr.band'
+    'wss://nos.lol'
   ];
   
   const pool = new SimplePool();
@@ -349,8 +347,7 @@ export async function fetchReactions(eventId: string, relays?: string[]): Promis
   const defaultRelays = [
     'wss://relay.damus.io',
     'wss://relay.snort.social',
-    'wss://nos.lol',
-    'wss://relay.nostr.band'
+    'wss://nos.lol'
   ];
   
   const pool = new SimplePool();
