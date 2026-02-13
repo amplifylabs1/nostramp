@@ -6,8 +6,7 @@ import {
   Repeat2, 
   MessageCircle, 
   Zap, 
-  Bookmark, 
-  Share2,
+  Bookmark,
   BadgeCheck 
 } from 'lucide-react';
 import { 
