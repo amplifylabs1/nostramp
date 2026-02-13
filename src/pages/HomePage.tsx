@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Rocket, Key, Globe, Shield, Zap, Code2, Check, X } from 'lucide-react';
 import { extractEventId } from '../nostr';
 
 function HomePage() {
@@ -103,12 +104,12 @@ function HomePage() {
             <div className={`status-message ${statusType}`}>
               {statusType === 'error' ? (
                 <>
-                  <span className="status-icon">✕</span>
+                  <X className="status-icon" size={20} />
                   <span>{statusMessage}</span>
                 </>
               ) : (
                 <>
-                  <span className="status-icon">✓</span>
+                  <Check className="status-icon" size={20} />
                   <a 
                     href={statusMessage}
                     className="status-link" 
@@ -129,17 +130,23 @@ function HomePage() {
         
         <div className="value-props value-props-compact">
           <div className="value-prop value-prop-compact">
-            <div className="value-icon">🚀</div>
+            <div className="value-icon">
+              <Rocket size={32} />
+            </div>
             <h3>No Setup</h3>
             <p>Zero friction. No apps, no signup, just paste and go.</p>
           </div>
           <div className="value-prop value-prop-compact">
-            <div className="value-icon">🔐</div>
+            <div className="value-icon">
+              <Key size={32} />
+            </div>
             <h3>Own Your Keys</h3>
             <p>Keys live in your browser. Export to any client when ready.</p>
           </div>
           <div className="value-prop value-prop-compact">
-            <div className="value-icon">🎯</div>
+            <div className="value-icon">
+              <Globe size={32} />
+            </div>
             <h3>Works Everywhere</h3>
             <p>Clean preview links that open in any browser instantly.</p>
           </div>
@@ -147,15 +154,15 @@ function HomePage() {
         
         <div className="trust-section">
           <div className="trust-item">
-            <span className="trust-icon">🛡️</span>
+            <Shield className="trust-icon" size={18} />
             <span>Private</span>
           </div>
           <div className="trust-item">
-            <span className="trust-icon">⚡</span>
+            <Zap className="trust-icon" size={18} />
             <span>Fast</span>
           </div>
           <div className="trust-item">
-            <span className="trust-icon">🔓</span>
+            <Code2 className="trust-icon" size={18} />
             <span>Open Source</span>
           </div>
         </div>
