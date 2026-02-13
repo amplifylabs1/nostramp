@@ -126,3 +126,36 @@ export function exportKeypair(privateKeyHex: string, publicKeyHex: string): Expo
     }
   };
 }
+
+/**
+ * Extract event identifier from various Nostr link formats
+ * Supports: note1..., nevent1..., nostr: prefixes, and various client URLs
+ * @param link - Nostr link to parse
+ * @returns The event identifier (nevent1... or note1...) or null if not found
+ */
+export function extractEventId(link: string): string | null {
+  // Remove whitespace
+  const cleanLink = link.trim();
+  
+  // Match bech32 encoded identifiers (note1... or nevent1...)
+  const bech32Regex = /(note1|nevent1)[a-z0-9]+/i;
+  const match = cleanLink.match(bech32Regex);
+  
+  if (match) {
+    return match[0];
+  }
+  
+  // If it's a hex ID (64 characters), encode it as note1
+  const hexRegex = /[a-f0-9]{64}/i;
+  const hexMatch = cleanLink.match(hexRegex);
+  
+  if (hexMatch) {
+    try {
+      return nip19.noteEncode(hexMatch[0]);
+    } catch {
+      return null;
+    }
+  }
+  
+  return null;
+}

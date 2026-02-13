@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { extractEventId } from '../nostr';
 
 function HomePage() {
   const [nostrLink, setNostrLink] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string>('');
-  const [statusType, setStatusType] = useState<'success' | 'error' | ''>('');
+  const [statusType, setStatusType] = useState<'success' | 'error' | 'copied' | ''>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const handleCreateLink = async () => {
@@ -16,11 +17,30 @@ function HomePage() {
     setIsLoading(true);
     
     try {
-      const linkId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      const shareableLink = `${window.location.origin}/p/${linkId}`;
+      // Extract the event ID from the Nostr link
+      const eventId = extractEventId(nostrLink);
       
-      setStatusMessage(shareableLink);
-      setStatusType('success');
+      if (!eventId) {
+        setStatusMessage('Could not find a valid Nostr event ID in the link');
+        setStatusType('error');
+        setIsLoading(false);
+        return;
+      }
+      
+      const shareableLink = `${window.location.origin}/${eventId}`;
+      
+      // Auto-copy to clipboard
+      try {
+        await navigator.clipboard.writeText(shareableLink);
+        setStatusMessage(shareableLink);
+        setStatusType('copied');
+      } catch (clipboardError) {
+        // If clipboard fails, still show the link
+        console.error('Failed to copy to clipboard:', clipboardError);
+        setStatusMessage(shareableLink);
+        setStatusType('success');
+      }
+      
       setNostrLink('');
     } catch (error) {
       console.error('Error creating link:', error);
@@ -28,20 +48,6 @@ function HomePage() {
       setStatusType('error');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatusMessage('Copied to clipboard!');
-      setStatusType('success');
-      setTimeout(() => {
-        setStatusMessage('');
-        setStatusType('');
-      }, 2000);
-    } catch (error) {
-      console.error('Error copying to clipboard:', error);
     }
   };
 
@@ -95,21 +101,26 @@ function HomePage() {
           
           {statusMessage && (
             <div className={`status-message ${statusType}`}>
-              {statusType === 'success' ? (
-                <>
-                  <span className="status-icon">✓</span>
-                  <span 
-                    className="status-link" 
-                    onClick={() => copyToClipboard(statusMessage)}
-                    title="Click to copy"
-                  >
-                    {statusMessage}
-                  </span>
-                </>
-              ) : (
+              {statusType === 'error' ? (
                 <>
                   <span className="status-icon">✕</span>
                   <span>{statusMessage}</span>
+                </>
+              ) : (
+                <>
+                  <span className="status-icon">✓</span>
+                  <a 
+                    href={statusMessage}
+                    className="status-link" 
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Click to open link"
+                  >
+                    {statusMessage}
+                  </a>
+                  {statusType === 'copied' && (
+                    <span className="copied-badge">Copied!</span>
+                  )}
                 </>
               )}
             </div>
@@ -152,10 +163,6 @@ function HomePage() {
       
       <footer className="footer">
         <span>Onboarding made simple</span>
-        <span className="divider">•</span>
-        <a href="" target="_blank" rel="noopener noreferrer">
-          GitHub
-        </a>
       </footer>
     </div>
   );

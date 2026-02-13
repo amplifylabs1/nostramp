@@ -218,10 +218,6 @@ Generated: ${new Date().toISOString()}
       
       <footer className="footer">
         <span>Powered by Nostr</span>
-        <span className="divider">•</span>
-        <a href="" target="_blank" rel="noopener noreferrer">
-          GitHub
-        </a>
       </footer>
       
       {renderClaimModal()}

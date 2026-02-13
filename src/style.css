@@ -419,10 +419,32 @@ body {
   text-decoration: underline;
   text-decoration-style: dotted;
   word-break: break-all;
+  color: inherit;
+}
+
+.status-message.success .status-link,
+.status-message.copied .status-link {
+  color: inherit;
 }
 
 .status-link:hover {
   opacity: 0.8;
+}
+
+.status-message.copied {
+  background: rgba(249, 115, 22, 0.15);
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  color: #FB923C;
+}
+
+.copied-badge {
+  margin-left: auto;
+  padding: 0.25rem 0.75rem;
+  background: rgba(249, 115, 22, 0.3);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  animation: fadeIn 0.3s ease;
 }
 
 /* Features */
