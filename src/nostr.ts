@@ -2,7 +2,57 @@
  * Nostr utilities using nostr-tools
  */
 
-import { generateSecretKey, getPublicKey, finalizeEvent, nip19, SimplePool, type UnsignedEvent, type Event } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, finalizeEvent, nip19, SimplePool, type Event as NostrEvent } from 'nostr-tools';
+
+// Extend the Event type with additional properties
+// Note: NostrEvent already has required properties: id, pubkey, created_at, kind, tags, content, sig
+// We only add new optional properties here - do not re-declare inherited properties as optional
+export interface Event extends NostrEvent {
+  profile?: ProfileData;
+  isVerified?: boolean;
+  images?: string[];
+  videos?: string[];
+  events?: Array<{ type: string; content: string }>;
+}
+
+// UnsignedEvent type for events that haven't been signed yet
+// These have required properties for creating an event but no signature
+export interface UnsignedEvent {
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  profile?: ProfileData;
+  isVerified?: boolean;
+  images?: string[];
+  videos?: string[];
+  events?: Array<{ type: string; content: string }>;
+}
+
+// Type guards for optional properties
+export function hasImages(event: Event): event is Event {
+  return Array.isArray(event.images) && event.images.length > 0;
+}
+
+export function hasVideos(event: Event): event is Event {
+  return Array.isArray(event.videos) && event.videos.length > 0;
+}
+
+export function hasEvents(event: Event): event is Event {
+  return Array.isArray(event.events) && event.events.length > 0;
+}
+
+// Helper function to ensure required properties are present
+export function ensureEventProperties(event: Event): Event {
+  return {
+    ...event,
+    kind: event.kind || 0,
+    created_at: event.created_at || 0,
+    pubkey: event.pubkey || '',
+    content: event.content || ''
+  };
+}
 
 export interface Keypair {
   privateKey: string;
@@ -425,5 +475,239 @@ export async function verifyNIP05(nip05: string, pubkey: string): Promise<boolea
     return names[name] === pubkey;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Default relays for publishing
+ */
+const DEFAULT_PUBLISH_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.snort.social',
+  'wss://nos.lol'
+];
+
+/**
+ * Publish an event to Nostr relays
+ * @param privateKeyHex - Hex-encoded private key for signing
+ * @param content - Event content
+ * @param kind - Event kind (default: 1 for text note)
+ * @param tags - Event tags
+ * @param relays - Optional custom relays to publish to
+ * @returns The published event or null if failed
+ */
+export async function publishEvent(
+  privateKeyHex: string,
+  content: string,
+  kind: number = 1,
+  tags: string[][] = [],
+  relays?: string[]
+): Promise<Event | null> {
+  const pool = new SimplePool();
+  const relayList = relays && relays.length > 0 ? relays : DEFAULT_PUBLISH_RELAYS;
+  
+  try {
+    // Create and sign the event
+    const signedEvent = createSignedEvent(privateKeyHex, content, kind, tags);
+    
+    // Publish to relays
+    await Promise.all(pool.publish(relayList, signedEvent));
+    
+    pool.close(relayList);
+    return signedEvent;
+  } catch (error) {
+    console.error('Error publishing event:', error);
+    pool.close(relayList);
+    return null;
+  }
+}
+
+/**
+ * Publish a reply to an event (kind 1 with 'e' and 'p' tags)
+ * @param privateKeyHex - Hex-encoded private key
+ * @param content - Reply content
+ * @param targetEventId - Event ID being replied to
+ * @param targetPubkey - Public key of the author being replied to
+ * @param relays - Optional custom relays
+ * @returns The published event or null if failed
+ */
+export async function publishReply(
+  privateKeyHex: string,
+  content: string,
+  targetEventId: string,
+  targetPubkey: string,
+  relays?: string[]
+): Promise<Event | null> {
+  // Tags: ['e', event_id, recommended_relay_url, 'marker']
+  // Using 'reply' marker for top-level replies
+  const tags: string[][] = [
+    ['e', targetEventId, '', 'reply'],
+    ['p', targetPubkey]
+  ];
+  
+  return publishEvent(privateKeyHex, content, 1, tags, relays);
+}
+
+/**
+ * Publish a like reaction (kind 7)
+ * @param privateKeyHex - Hex-encoded private key
+ * @param targetEventId - Event ID being liked
+ * @param targetPubkey - Public key of the author
+ * @param relays - Optional custom relays
+ * @returns The published event or null if failed
+ */
+export async function publishLike(
+  privateKeyHex: string,
+  targetEventId: string,
+  targetPubkey: string,
+  relays?: string[]
+): Promise<Event | null> {
+  // Kind 7 is for reactions, content is typically '+' or an emoji
+  const tags: string[][] = [
+    ['e', targetEventId],
+    ['p', targetPubkey]
+  ];
+  
+  return publishEvent(privateKeyHex, '+', 7, tags, relays);
+}
+
+/**
+ * Publish a bookmark/save (kind 30001 for generic bookmark list)
+ * This creates a parameterized replaceable event for the user's bookmarks
+ * @param privateKeyHex - Hex-encoded private key
+ * @param targetEventId - Event ID being saved
+ * @param existingBookmarks - Existing bookmarked event IDs to include
+ * @param relays - Optional custom relays
+ * @returns The published event or null if failed
+ */
+export async function publishBookmark(
+  privateKeyHex: string,
+  targetEventId: string,
+  existingBookmarks: string[] = [],
+  relays?: string[]
+): Promise<Event | null> {
+  // Kind 30001 is for generic bookmark lists (parameterized replaceable)
+  // Tags include all bookmarked event IDs
+  const tags: string[][] = [
+    ['d', 'bookmarks'], // identifier for the bookmark list
+    ...existingBookmarks.map(id => ['e', id]),
+    ['e', targetEventId]
+  ];
+  
+  return publishEvent(privateKeyHex, '', 30001, tags, relays);
+}
+
+/**
+ * Fetch replies for an event
+ * @param eventId - The event ID to fetch replies for
+ * @param relays - Optional custom relays
+ * @returns Array of reply events
+ */
+export async function fetchReplies(eventId: string, relays?: string[]): Promise<Event[]> {
+  const defaultRelays = [
+    'wss://relay.damus.io',
+    'wss://relay.snort.social',
+    'wss://nos.lol'
+  ];
+  
+  const pool = new SimplePool();
+  const relayList = relays && relays.length > 0 ? relays : defaultRelays;
+  
+  try {
+    const replyEvents = await pool.querySync(relayList, {
+      kinds: [1],
+      '#e': [eventId]
+    });
+    
+    pool.close(relayList);
+    
+    // Sort by created_at descending (newest first)
+    return replyEvents.sort((a, b) => b.created_at - a.created_at);
+  } catch (error) {
+    console.error('Error fetching replies:', error);
+    pool.close(relayList);
+    return [];
+  }
+}
+
+/**
+ * Fetch user's own likes for a specific event from the network
+ * @param eventId - The event ID to check likes for
+ * @param userPubkey - The user's public key
+ * @param relays - Optional custom relays
+ * @returns True if the user has liked this event on the network
+ */
+export async function fetchUserLikedEvent(
+  eventId: string, 
+  userPubkey: string, 
+  relays?: string[]
+): Promise<boolean> {
+  const defaultRelays = [
+    'wss://relay.damus.io',
+    'wss://relay.snort.social',
+    'wss://nos.lol'
+  ];
+  
+  const pool = new SimplePool();
+  const relayList = relays && relays.length > 0 ? relays : defaultRelays;
+  
+  try {
+    // Fetch kind 7 reactions by this user for this event
+    const reactionEvents = await pool.querySync(relayList, {
+      kinds: [7],
+      authors: [userPubkey],
+      '#e': [eventId]
+    });
+    
+    pool.close(relayList);
+    
+    // Check if any reaction is a like
+    return reactionEvents.some(event => {
+      const content = event.content.toLowerCase();
+      return content === '+' || content === '' || content.includes('❤️') || content.includes('👍');
+    });
+  } catch (error) {
+    console.error('Error fetching user likes:', error);
+    pool.close(relayList);
+    return false;
+  }
+}
+
+/**
+ * Fetch user's own replies for a specific event from the network
+ * @param eventId - The event ID to check replies for
+ * @param userPubkey - The user's public key
+ * @param relays - Optional custom relays
+ * @returns Array of user's reply events
+ */
+export async function fetchUserReplies(
+  eventId: string, 
+  userPubkey: string, 
+  relays?: string[]
+): Promise<Event[]> {
+  const defaultRelays = [
+    'wss://relay.damus.io',
+    'wss://relay.snort.social',
+    'wss://nos.lol'
+  ];
+  
+  const pool = new SimplePool();
+  const relayList = relays && relays.length > 0 ? relays : defaultRelays;
+  
+  try {
+    const replyEvents = await pool.querySync(relayList, {
+      kinds: [1],
+      authors: [userPubkey],
+      '#e': [eventId]
+    });
+    
+    pool.close(relayList);
+    
+    // Sort by created_at descending (newest first)
+    return replyEvents.sort((a, b) => b.created_at - a.created_at);
+  } catch (error) {
+    console.error('Error fetching user replies:', error);
+    pool.close(relayList);
+    return [];
   }
 }
