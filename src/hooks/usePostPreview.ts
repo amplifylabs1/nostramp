@@ -18,8 +18,6 @@ import {
   getUserActivity,
   recordLike,
   removeLike,
-  recordSave,
-  removeSave,
   recordReply,
   hasLikedEvent,
   hasSavedEvent,
@@ -172,28 +170,6 @@ export function usePostPreview(eventId: string | undefined): UsePostPreviewRetur
     }
   }, [data.event]);
 
-  const toggleSave = useCallback(() => {
-    if (!data.event) return;
-    
-    const wasSaved = hasSavedEvent(data.event.id);
-    
-    if (wasSaved) {
-      removeSave(data.event.id);
-      setData(prev => ({
-        ...prev,
-        isSavedByUser: false,
-        userActivity: getUserActivity()
-      }));
-    } else {
-      recordSave(data.event.id);
-      setData(prev => ({
-        ...prev,
-        isSavedByUser: true,
-        userActivity: getUserActivity()
-      }));
-    }
-  }, [data.event]);
-
   const fetchData = async () => {
     if (!eventId) {
       setData(prev => ({
@@ -251,10 +227,7 @@ export function usePostPreview(eventId: string | undefined): UsePostPreviewRetur
           isVerified = false;
         }
       }
-
-      // Get user activity status
-      const isSavedByUser = hasSavedEvent(event.id);
-      
+ 
       // Check for user's identity to fetch network interactions
       const identityState = getIdentityState();
       let isLikedByUser = hasLikedEvent(event.id); // Start with local state
