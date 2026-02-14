@@ -7,55 +7,35 @@ import {
   MessageCircle, 
   Zap, 
   BadgeCheck,
-  User,
-  Lock
+  User
 } from 'lucide-react';
 import { 
   getIdentityState,
-  getSessionKey,
+  getProfileKey,
+  createProfile,
   type IdentityState
 } from '../storage.identity';
 import { formatRelativeTime, generateEphemeralKeypair } from '../nostr';
 import { usePostPreview, getDisplayName, formatReactionCount } from '../hooks/usePostPreview';
 
-// Storage key for ephemeral keys
-const EPHEMERAL_KEY_STORAGE = 'nostramp_ephemeral_key';
-
 /**
- * Get or create ephemeral keys for users without an identity
+ * Get or create profile keys - uses the same storage as profile
  */
-function getOrCreateEphemeralKeys(): { privateKey: string; publicKey: string } {
-  // First check if we already have session keys
-  const session = getSessionKey();
-  if (session) {
-    return session;
+function getOrCreateProfileKeys(): { privateKey: string; publicKey: string } {
+  // Check if user already has a profile
+  const profileKey = getProfileKey();
+  if (profileKey) {
+    return profileKey;
   }
   
-  // Check for existing ephemeral key in localStorage
-  try {
-    const stored = localStorage.getItem(EPHEMERAL_KEY_STORAGE);
-    if (stored) {
-      const keys = JSON.parse(stored);
-      // Store in session for faster access
-      sessionStorage.setItem('nostramp_session_key', keys.privateKey);
-      return keys;
-    }
-  } catch (error) {
-    console.error('Error reading ephemeral key:', error);
+  // Create a new profile (ephemeral keypair)
+  const result = createProfile();
+  if (result.privateKey) {
+    return { privateKey: result.privateKey, publicKey: result.publicKey };
   }
   
-  // Generate new ephemeral keypair
-  const keypair = generateEphemeralKeypair();
-  
-  // Store in localStorage for persistence
-  try {
-    localStorage.setItem(EPHEMERAL_KEY_STORAGE, JSON.stringify(keypair));
-    sessionStorage.setItem('nostramp_session_key', keypair.privateKey);
-  } catch (error) {
-    console.error('Error storing ephemeral key:', error);
-  }
-  
-  return keypair;
+  // Fallback - generate without storing
+  return generateEphemeralKeypair();
 }
 
 function PreviewPage() {
@@ -90,9 +70,9 @@ function PreviewPage() {
     setIdentityState(state);
   }, []);
 
-  // Ensure identity is available before actions - creates ephemeral keys if needed
+  // Ensure identity is available before actions - creates profile keys if needed
   const ensureIdentity = useCallback((): { privateKey: string; publicKey: string } => {
-    return getOrCreateEphemeralKeys();
+    return getOrCreateProfileKeys();
   }, []);
 
   const handlePostReply = async () => {
@@ -105,6 +85,9 @@ function PreviewPage() {
       const result = await postReply(keys.privateKey, commentText.trim());
       if (result) {
         setCommentText('');
+        // Update identity state after posting (profile may have been created)
+        const state = getIdentityState();
+        setIdentityState(state);
       }
     } catch (err) {
       console.error('Error posting reply:', err);
@@ -115,6 +98,9 @@ function PreviewPage() {
   const handleToggleLike = async () => {
     const keys = ensureIdentity();
     await toggleLike(keys.privateKey);
+    // Update identity state after liking (profile may have been created)
+    const state = getIdentityState();
+    setIdentityState(state);
   };
 
   const renderLoading = () => (
@@ -255,9 +241,7 @@ function PreviewPage() {
           <div className="flex gap-3 items-center max-sm:flex-col">
             <input
               type="text"
-              placeholder={identityState.hasIdentity && !identityState.isLocked 
-                ? `Reply to ${displayName}...` 
-                : 'Set up identity to reply...'}
+              placeholder={`Reply to ${displayName}...`}
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handlePostReply()}
@@ -324,24 +308,17 @@ function PreviewPage() {
             </div>
           )}
           
-          {/* Identity Link */}
+          {/* Profile Link */}
           <Link to="/identity" className="flex items-center gap-2 px-4 py-2.5 bg-transparent border border-border rounded-xl text-text-secondary text-sm font-medium no-underline cursor-pointer transition-all duration-200 hover:border-nostr-purple hover:text-nostr-purple">
             {identityState.hasIdentity ? (
-              identityState.isLocked ? (
-                <>
-                  <Lock size={16} />
-                  <span>Unlock</span>
-                </>
-              ) : (
-                <>
-                  <User size={16} />
-                  <span>Identity</span>
-                </>
-              )
+              <>
+                <User size={16} />
+                <span>Claim your profile</span>
+              </>
             ) : (
               <>
                 <User size={16} />
-                <span>Set Up Identity</span>
+                <span>Set Up Profile</span>
               </>
             )}
           </Link>
@@ -362,3 +339,4 @@ function PreviewPage() {
 }
 
 export default PreviewPage;
+

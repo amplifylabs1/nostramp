@@ -1,17 +1,11 @@
 /**
- * Identity storage utilities for managing encrypted Nostr identity
+ * Identity storage utilities for managing Nostr profile with ephemeral keys
  */
 
-import { 
-  encryptIdentity, 
-  decryptIdentity, 
-  validatePassword,
-  type EncryptedIdentity 
-} from './security/crypto';
 import { generateEphemeralKeypair, getPublicKeyFromPrivate } from './nostr';
 
 const STORAGE_KEYS = {
-  ENCRYPTED_IDENTITY: 'nostramp_encrypted_identity',
+  PROFILE_KEY: 'nostramp_profile_key',  // This is the user's profile/ephemeral key
   USER_ACTIVITY: 'nostramp_user_activity',
   SESSION_KEY: 'nostramp_session_key'
 } as const;
@@ -161,105 +155,61 @@ export function hasSavedEvent(eventId: string): boolean {
 }
 
 /**
- * Check if an encrypted identity exists in storage
+ * Check if a profile key exists in storage
  */
-export function hasEncryptedIdentity(): boolean {
+export function hasProfileKey(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEYS.ENCRYPTED_IDENTITY) !== null;
+    return localStorage.getItem(STORAGE_KEYS.PROFILE_KEY) !== null;
   } catch (error) {
-    console.error('Error checking identity:', error);
+    console.error('Error checking profile:', error);
     return false;
   }
 }
 
 /**
- * Get the encrypted identity from storage
+ * Get the profile key from storage
  */
-export function getEncryptedIdentity(): EncryptedIdentity | null {
+export function getProfileKey(): { privateKey: string; publicKey: string } | null {
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.ENCRYPTED_IDENTITY);
+    const stored = localStorage.getItem(STORAGE_KEYS.PROFILE_KEY);
     if (stored) {
-      return JSON.parse(stored) as EncryptedIdentity;
+      const keys = JSON.parse(stored);
+      return {
+        privateKey: keys.privateKey,
+        publicKey: keys.publicKey
+      };
     }
   } catch (error) {
-    console.error('Error reading encrypted identity:', error);
+    console.error('Error reading profile key:', error);
   }
   return null;
 }
 
 /**
- * Create and store a new encrypted identity
- * @param password - User password for encryption
- * @returns The public key of the new identity
+ * Create and store a new profile with ephemeral keys
+ * @returns The public key of the new profile
  */
-export async function createEncryptedIdentity(password: string): Promise<{ 
+export function createProfile(): { 
   publicKey: string; 
+  privateKey: string;
   error?: string 
-}> {
-  // Validate password
-  const validation = validatePassword(password);
-  if (!validation.isValid) {
-    return { publicKey: '', error: validation.error };
+} {
+  // Check if profile already exists
+  if (hasProfileKey()) {
+    return { publicKey: '', privateKey: '', error: 'Profile already exists' };
   }
   
-  // Check if identity already exists
-  if (hasEncryptedIdentity()) {
-    return { publicKey: '', error: 'Identity already exists' };
-  }
-  
-  // Generate new keypair
+  // Generate new ephemeral keypair
   const keypair = generateEphemeralKeypair();
   
-  // Encrypt and store
-  const encrypted = await encryptIdentity(keypair.privateKey, password);
-  
   try {
-    localStorage.setItem(STORAGE_KEYS.ENCRYPTED_IDENTITY, JSON.stringify(encrypted));
-    return { publicKey: keypair.publicKey };
+    localStorage.setItem(STORAGE_KEYS.PROFILE_KEY, JSON.stringify(keypair));
+    sessionStorage.setItem(STORAGE_KEYS.SESSION_KEY, keypair.privateKey);
+    return { publicKey: keypair.publicKey, privateKey: keypair.privateKey };
   } catch (error) {
-    console.error('Error storing encrypted identity:', error);
-    return { publicKey: '', error: 'Failed to store identity' };
+    console.error('Error storing profile:', error);
+    return { publicKey: '', privateKey: '', error: 'Failed to store profile' };
   }
-}
-
-/**
- * Unlock the identity with password
- * @param password - User password
- * @param rememberSession - Whether to remember the key for the session
- * @returns The decrypted private key and public key, or error
- */
-export async function unlockIdentity(
-  password: string, 
-  rememberSession: boolean = false
-): Promise<{ 
-  privateKey: string; 
-  publicKey: string; 
-  error?: string 
-}> {
-  const encrypted = getEncryptedIdentity();
-  
-  if (!encrypted) {
-    return { privateKey: '', publicKey: '', error: 'No identity found' };
-  }
-  
-  const privateKey = await decryptIdentity(encrypted, password);
-  
-  if (!privateKey) {
-    return { privateKey: '', publicKey: '', error: 'Invalid password' };
-  }
-  
-  const publicKey = getPublicKeyFromPrivate(privateKey);
-  
-  // Optionally store in session memory
-  if (rememberSession) {
-    try {
-      sessionStorage.setItem(STORAGE_KEYS.SESSION_KEY, privateKey);
-    } catch (error) {
-      console.error('Error storing session key:', error);
-    }
-  }
-  
-  return { privateKey, publicKey };
 }
 
 /**
@@ -279,7 +229,7 @@ export function getSessionKey(): { privateKey: string; publicKey: string } | nul
 }
 
 /**
- * Clear the session key (lock the identity)
+ * Clear the session key
  */
 export function clearSessionKey(): void {
   try {
@@ -293,32 +243,61 @@ export function clearSessionKey(): void {
  * Get current identity state
  */
 export function getIdentityState(): IdentityState {
-  const sessionKey = getSessionKey();
-  if (sessionKey) {
+  const profileKey = getProfileKey();
+  
+  if (profileKey) {
+    // Ensure session key is set
+    sessionStorage.setItem(STORAGE_KEYS.SESSION_KEY, profileKey.privateKey);
     return {
-      publicKey: sessionKey.publicKey,
+      publicKey: profileKey.publicKey,
       isLocked: false,
       hasIdentity: true
     };
   }
   
-  const hasEncrypted = hasEncryptedIdentity();
   return {
     publicKey: null,
-    isLocked: hasEncrypted,
-    hasIdentity: hasEncrypted
+    isLocked: false,
+    hasIdentity: false
   };
 }
 
 /**
- * Clear all identity data (for testing or reset)
+ * Restore session and return keys - for use in components
+ */
+export async function restoreAndGetSession(): Promise<{ privateKey: string; publicKey: string } | null> {
+  // First check if we already have a session key
+  const existingSession = getSessionKey();
+  if (existingSession) {
+    return existingSession;
+  }
+  
+  // Try to get from profile key
+  const profileKey = getProfileKey();
+  if (profileKey) {
+    sessionStorage.setItem(STORAGE_KEYS.SESSION_KEY, profileKey.privateKey);
+    return profileKey;
+  }
+  
+  return null;
+}
+
+/**
+ * Clear all profile data (burn profile)
  */
 export function clearIdentityData(): void {
   try {
-    localStorage.removeItem(STORAGE_KEYS.ENCRYPTED_IDENTITY);
+    localStorage.removeItem(STORAGE_KEYS.PROFILE_KEY);
     localStorage.removeItem(STORAGE_KEYS.USER_ACTIVITY);
     sessionStorage.removeItem(STORAGE_KEYS.SESSION_KEY);
   } catch (error) {
-    console.error('Error clearing identity data:', error);
+    console.error('Error clearing profile data:', error);
   }
 }
+
+// Keep these for backwards compatibility with existing code
+export const hasEncryptedIdentity = hasProfileKey;
+export const createEncryptedIdentity = async () => {
+  const result = createProfile();
+  return { publicKey: result.publicKey, error: result.error };
+};

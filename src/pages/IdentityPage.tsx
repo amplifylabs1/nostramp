@@ -6,8 +6,7 @@ import {
   Eye, 
   EyeOff, 
   Download, 
-  Lock, 
-  Unlock,
+  Flame,
   MessageCircle,
   Heart,
   ArrowLeft,
@@ -17,139 +16,70 @@ import {
   ExternalLink
 } from 'lucide-react';
 import {
-  createEncryptedIdentity,
-  unlockIdentity,
+  createProfile,
   getIdentityState,
-  getSessionKey,
-  clearSessionKey,
+  clearIdentityData,
   getUserActivity,
+  getProfileKey,
   type UserActivity
 } from '../storage.identity';
 import { exportKeypair, type ExportedKeypair } from '../nostr';
 
-type ViewMode = 'create' | 'unlock' | 'identity';
+type ViewMode = 'create' | 'profile';
 
 function IdentityPage() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<ViewMode>('create');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  
-  // Identity state
-  const [, setPublicKey] = useState<string | null>(null);
-  const [, setPrivateKey] = useState<string | null>(null);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [exportedKeys, setExportedKeys] = useState<ExportedKeypair | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [showBurnConfirm, setShowBurnConfirm] = useState(false);
+  
+  // Create form state
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
   // Activity
-  const [activity] = useState<UserActivity>(getUserActivity());
-  
-  // Remember session
-  const [rememberSession, setRememberSession] = useState(false);
+  const [activity, setActivity] = useState<UserActivity>(getUserActivity());
 
   useEffect(() => {
     // Check current identity state
     const state = getIdentityState();
     
-    if (state.hasIdentity && !state.isLocked) {
-      // Already unlocked
-      const session = getSessionKey();
-      if (session) {
-        setPublicKey(session.publicKey);
-        setPrivateKey(session.privateKey);
-        setExportedKeys(exportKeypair(session.privateKey, session.publicKey));
-        setViewMode('identity');
+    if (state.hasIdentity) {
+      // Get the profile key
+      const profileKey = getProfileKey();
+      if (profileKey) {
+        setExportedKeys(exportKeypair(profileKey.privateKey, profileKey.publicKey));
+        setViewMode('profile');
       }
-    } else if (state.hasIdentity && state.isLocked) {
-      // Need to unlock
-      setViewMode('unlock');
     } else {
-      // No identity, need to create
       setViewMode('create');
     }
   }, []);
 
-  const handleCreateIdentity = async () => {
+  const handleCreateProfile = () => {
     setError('');
-    
-    if (!password) {
-      setError('Please enter a password');
-      return;
-    }
-    
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
-      return;
-    }
-    
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-    
     setIsLoading(true);
     
-    try {
-      const result = await createEncryptedIdentity(password);
-      
-      if (result.error) {
-        setError(result.error);
-      } else {
-        // Auto-unlock after creation
-        const unlockResult = await unlockIdentity(password, rememberSession);
-        if (unlockResult.privateKey) {
-          setPublicKey(unlockResult.publicKey);
-          setPrivateKey(unlockResult.privateKey);
-          setExportedKeys(exportKeypair(unlockResult.privateKey, unlockResult.publicKey));
-          setViewMode('identity');
-        }
-      }
-    } catch (err) {
-      setError('Failed to create identity');
+    const result = createProfile();
+    
+    if (result.error) {
+      setError(result.error);
+    } else {
+      setExportedKeys(exportKeypair(result.privateKey, result.publicKey));
+      setViewMode('profile');
     }
     
     setIsLoading(false);
   };
 
-  const handleUnlock = async () => {
-    setError('');
-    
-    if (!password) {
-      setError('Please enter your password');
-      return;
-    }
-    
-    setIsLoading(true);
-    
-    try {
-      const result = await unlockIdentity(password, rememberSession);
-      
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setPublicKey(result.publicKey);
-        setPrivateKey(result.privateKey);
-        setExportedKeys(exportKeypair(result.privateKey, result.publicKey));
-        setViewMode('identity');
-      }
-    } catch (err) {
-      setError('Failed to unlock identity');
-    }
-    
-    setIsLoading(false);
-  };
-
-  const handleLock = () => {
-    clearSessionKey();
-    setPublicKey(null);
-    setPrivateKey(null);
+  const handleBurnProfile = () => {
+    clearIdentityData();
     setExportedKeys(null);
-    setPassword('');
-    setViewMode('unlock');
+    setViewMode('create');
+    setShowBurnConfirm(false);
+    setActivity(getUserActivity());
   };
 
   const copyToClipboard = async (text: string, keyName: string) => {
@@ -170,7 +100,7 @@ function IdentityPage() {
     let mimeType: string;
     
     if (format === 'txt') {
-      content = `Nostr Identity Keys
+      content = `Nostr Profile Keys
 ====================
 
 Public Key (npub) - Share this:
@@ -213,150 +143,40 @@ Generated: ${new Date().toISOString()}
         <div className="w-16 h-16 flex items-center justify-center mx-auto mb-4 bg-gradient-to-br from-nostr-purple to-nostr-orange rounded-2xl text-white">
           <Key size={32} />
         </div>
-        <h2 className="text-2xl font-bold mb-2 text-text-primary">Create Your Identity</h2>
-        <p className="text-text-muted text-sm">Set up your Nostr identity to interact with posts</p>
+        <h2 className="text-2xl font-bold mb-2 text-text-primary">Create Your Profile</h2>
+        <p className="text-text-muted text-sm">Set up your Nostr profile to interact with posts</p>
       </div>
       
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <label htmlFor="password" className="text-sm font-medium text-text-secondary">Password</label>
-          <div className="relative">
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter a password (min 8 characters)"
-              className="w-full px-4 py-3.5 bg-bg-tertiary border border-border rounded-xl text-text-primary text-base outline-none transition-colors duration-200 focus:border-nostr-purple placeholder:text-text-muted"
-            />
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 bg-none border-none text-text-muted cursor-pointer p-1 hover:text-text-secondary"
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm mb-5">
+          <AlertTriangle size={16} />
+          <span>{error}</span>
         </div>
-        
-        <div className="flex flex-col gap-2">
-          <label htmlFor="confirmPassword" className="text-sm font-medium text-text-secondary">Confirm Password</label>
-          <input
-            id="confirmPassword"
-            type={showPassword ? 'text' : 'password'}
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Confirm your password"
-            className="w-full px-4 py-3.5 bg-bg-tertiary border border-border rounded-xl text-text-primary text-base outline-none transition-colors duration-200 focus:border-nostr-purple placeholder:text-text-muted"
-          />
-        </div>
-        
-        <div className="flex flex-row items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-            <input
-              type="checkbox"
-              checked={rememberSession}
-              onChange={(e) => setRememberSession(e.target.checked)}
-              className="w-4 h-4 accent-nostr-purple"
-            />
-            <span>Remember for this session</span>
-          </label>
-        </div>
-        
-        {error && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
-            <AlertTriangle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-        
-        <button
-          className="w-full px-6 py-3 bg-gradient-to-br from-nostr-purple to-nostr-orange border-none rounded-lg text-white text-base font-semibold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(168,85,247,0.4)] disabled:opacity-60 disabled:cursor-not-allowed"
-          onClick={handleCreateIdentity}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Creating...' : 'Create Identity'}
-        </button>
-      </div>
+      )}
+      
+      <button
+        className="w-full px-6 py-3 bg-gradient-to-br from-nostr-purple to-nostr-orange border-none rounded-lg text-white text-base font-semibold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(168,85,247,0.4)] disabled:opacity-60 disabled:cursor-not-allowed"
+        onClick={handleCreateProfile}
+        disabled={isLoading}
+      >
+        {isLoading ? 'Creating...' : 'Create Profile'}
+      </button>
       
       <div className="flex items-center justify-center gap-2 mt-6 pt-6 border-t border-border text-text-muted text-sm">
         <Shield size={16} />
-        <span>Your keys are encrypted and stored locally in your browser</span>
+        <span>Your keys are stored locally in your browser</span>
       </div>
     </div>
   );
 
-  const renderUnlockView = () => (
-    <div className="bg-bg-card border border-border rounded-3xl p-10 backdrop-blur-sm w-full max-w-md">
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 flex items-center justify-center mx-auto mb-4 bg-gradient-to-br from-nostr-purple to-nostr-orange rounded-2xl text-white">
-          <Lock size={32} />
-        </div>
-        <h2 className="text-2xl font-bold mb-2 text-text-primary">Unlock Your Identity</h2>
-        <p className="text-text-muted text-sm">Enter your password to access your identity</p>
-      </div>
-      
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <label htmlFor="unlockPassword" className="text-sm font-medium text-text-secondary">Password</label>
-          <div className="relative">
-            <input
-              id="unlockPassword"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              className="w-full px-4 py-3.5 bg-bg-tertiary border border-border rounded-xl text-text-primary text-base outline-none transition-colors duration-200 focus:border-nostr-purple placeholder:text-text-muted"
-              onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
-            />
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 bg-none border-none text-text-muted cursor-pointer p-1 hover:text-text-secondary"
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-        </div>
-        
-        <div className="flex flex-row items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-            <input
-              type="checkbox"
-              checked={rememberSession}
-              onChange={(e) => setRememberSession(e.target.checked)}
-              className="w-4 h-4 accent-nostr-purple"
-            />
-            <span>Remember for this session</span>
-          </label>
-        </div>
-        
-        {error && (
-          <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
-            <AlertTriangle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-        
-        <button
-          className="w-full px-6 py-3 bg-gradient-to-br from-nostr-purple to-nostr-orange border-none rounded-lg text-white text-base font-semibold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(168,85,247,0.4)] disabled:opacity-60 disabled:cursor-not-allowed"
-          onClick={handleUnlock}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Unlocking...' : 'Unlock'}
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderIdentityView = () => (
+  const renderProfileView = () => (
     <div className="bg-bg-card border border-border rounded-3xl p-10 backdrop-blur-sm w-full max-w-lg">
       <div className="text-center mb-8">
         <div className="w-16 h-16 flex items-center justify-center mx-auto mb-4 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl text-white">
-          <Unlock size={32} />
+          <Key size={32} />
         </div>
-        <h2 className="text-2xl font-bold mb-2 text-text-primary">Your Identity</h2>
-        <p className="text-emerald-400 text-sm">Identity unlocked and ready to use</p>
+        <h2 className="text-2xl font-bold mb-2 text-text-primary">Your Profile</h2>
+        <p className="text-emerald-400 text-sm">Profile ready to use</p>
       </div>
       
       {/* Activity Section */}
@@ -459,11 +279,38 @@ Generated: ${new Date().toISOString()}
         </div>
       </div>
       
-      {/* Lock Button */}
-      <button className="w-full px-6 py-3 bg-bg-tertiary border border-border rounded-xl text-text-secondary text-base font-medium cursor-pointer transition-all duration-200 flex items-center justify-center gap-2 hover:border-text-muted hover:text-text-primary" onClick={handleLock}>
-        <Lock size={16} />
-        Lock Identity
-      </button>
+      {/* Burn Profile Section */}
+      {showBurnConfirm ? (
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle size={16} className="text-red-400" />
+            <span className="text-red-400 font-medium text-sm">Are you sure?</span>
+          </div>
+          <p className="text-text-secondary text-sm mb-4">This will permanently delete your local profile. Make sure you've backed up your keys!</p>
+          <div className="flex gap-3">
+            <button 
+              className="flex-1 px-4 py-2 bg-red-500 border-none rounded-lg text-white text-sm font-medium cursor-pointer transition-opacity duration-200 hover:opacity-90"
+              onClick={handleBurnProfile}
+            >
+              Yes, Burn Profile
+            </button>
+            <button 
+              className="flex-1 px-4 py-2 bg-bg-tertiary border border-border rounded-lg text-text-secondary text-sm cursor-pointer transition-all duration-200 hover:border-text-muted hover:text-text-primary"
+              onClick={() => setShowBurnConfirm(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button 
+          className="w-full px-6 py-3 bg-bg-tertiary border border-red-500/30 rounded-xl text-red-400 text-base font-medium cursor-pointer transition-all duration-200 flex items-center justify-center gap-2 hover:bg-red-500/10 hover:border-red-500/50" 
+          onClick={() => setShowBurnConfirm(true)}
+        >
+          <Flame size={16} />
+          Burn Profile
+        </button>
+      )}
     </div>
   );
 
@@ -492,8 +339,7 @@ Generated: ${new Date().toISOString()}
       
       <main className="flex-1 flex flex-col items-center justify-start px-8 py-8 relative z-1 max-w-3xl mx-auto w-full pt-12">
         {viewMode === 'create' && renderCreateView()}
-        {viewMode === 'unlock' && renderUnlockView()}
-        {viewMode === 'identity' && renderIdentityView()}
+        {viewMode === 'profile' && renderProfileView()}
       </main>
       
       <footer className="flex items-center justify-center gap-3 px-8 py-8 text-text-muted text-sm relative z-1">
